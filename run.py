@@ -40,12 +40,12 @@ Example of YAML input:
 ...
 """
 
-obj_serial = None
+node_id = None
 vol_orig_pc = None
 
-def set_volume(obj_serial, tgt):
+def set_volume(node_id, tgt):
     subprocess.check_call(
-        f'wpctl set-volume {obj_serial} {tgt}%',
+        f'wpctl set-volume {node_id} {tgt}%',
         shell=True, executable='/usr/bin/zsh'
     )
 
@@ -68,19 +68,19 @@ def get_time_in_seconds(time_str: str)\
     raise ValueError
 
 def parse_serial_id(pw_cli_output: str) -> int:
-    re_nodeinfo_begin = re.compile(r'id [0-9]+, type ')
+    re_nodeinfo_begin = re.compile(r'id ([0-9]+), type .*')
     re_media_class = re.compile(r'media\.class = "Audio/Sink"')
     re_node_desc = re.compile(r'node\.description = ".*HD Audio Controller Analog Stereo"')
-    re_obj_serial = re.compile(r'object\.serial = "?([1-9]+)"?')
+    node_id = None
     media_class_matches = False
     node_desc_matches = False
-    obj_serial = None
     for line_raw in pw_cli_output.split('\n'):
         line = line_raw.strip()
-        if re_nodeinfo_begin.match(line):
+        match_obj = re_nodeinfo_begin.match(line)
+        if match_obj:
+            node_id = int(match_obj.group(1))
             media_class_matches = False
             node_desc_matches = False
-            obj_serial = None
             continue
         if not media_class_matches:
             if re_media_class.match(line):
@@ -88,15 +88,11 @@ def parse_serial_id(pw_cli_output: str) -> int:
         if not node_desc_matches:
             if re_node_desc.match(line):
                 node_desc_matches = True
-        if obj_serial is None:
-            match_obj = re_obj_serial.match(line)
-            if match_obj is not None:
-                obj_serial = int(match_obj.group(1))
-        if media_class_matches and node_desc_matches and (obj_serial is not None):
+        if media_class_matches and node_desc_matches:
             break
-    if obj_serial is None:
-        raise ValueError('ERROR: Unable to find audio serial number.')
-    return obj_serial
+    if node_id is None:
+        raise ValueError('ERROR: Unable to find audio node ID.')
+    return node_id
 
 def parse_vol_output_pc(vol_output: str) -> int:
     re_match = re.match(r'Volume: (.*)', vol_output)
@@ -117,17 +113,17 @@ def main(args):
         'pw-cli list-objects Node',
         shell=True, executable='/usr/bin/zsh', text=True,
     )
-    obj_serial = parse_serial_id(pw_cli_output)
-    print(f'Found audio serial number: {obj_serial}')
+    node_id = parse_serial_id(pw_cli_output)
+    print(f'Found audio serial number: {node_id}')
 
     # get current volume level
     vol_output = subprocess.check_output(
-        f'wpctl get-volume {obj_serial}',
+        f'wpctl get-volume {node_id}',
         shell=True, executable='/usr/bin/zsh', text=True,
     )
     vol_orig_pc = parse_vol_output_pc(vol_output)
     # set volume to 100%
-    set_volume(obj_serial, 100)
+    set_volume(node_id, 100)
 
     subprocess.check_call(
         'notify-send Get ready...',
@@ -139,6 +135,7 @@ def main(args):
             f'notify-send {5-i}...',
             shell=True, executable='/usr/bin/zsh',
         )
+    time.sleep(1.)
     subprocess.check_call(
         'notify-send Starting!',
         shell=True, executable='/usr/bin/zsh',
@@ -151,10 +148,10 @@ def main(args):
             raise ValueError
         title, time_str = track_info
         time_in_seconds = get_time_in_seconds(time_str)
-        print(f'testing track with title {title}, time in seconds: {time_in_seconds}')
+        print(f'Saving track with title {title}, time in seconds: {time_in_seconds}')
         try:
             subprocess.check_call(
-                f'pw-record --target {obj_serial} {args.out_dir}/{(i+1):04}_{title}.wav',
+                f'pw-record --target {node_id} {args.out_dir}/{(i+1):04}_{title}.wav',
                 shell=True,
                 executable='/usr/bin/zsh',
                 timeout=time_in_seconds,
@@ -162,13 +159,13 @@ def main(args):
         except subprocess.TimeoutExpired:
             # always should end here
             pass
-    set_volume(obj_serial, vol_orig_pc)
+    set_volume(node_id, vol_orig_pc)
     print('All Done.')
 
 def exit_gracefully() -> None:
-    if (obj_serial is None) or (vol_orig_pc is None):
+    if (node_id is None) or (vol_orig_pc is None):
         return
-    set_volume(obj_serial, vol_orig_pc)
+    set_volume(node_id, vol_orig_pc)
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT,  exit_gracefully)
