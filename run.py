@@ -151,7 +151,7 @@ def main(args):
         print(f'Saving track with title {title}, time in seconds: {time_in_seconds}')
         try:
             subprocess.check_call(
-                f'pw-record --target {node_id} {args.out_dir}/{(i+1):04}_{title}.wav',
+                f'pw-record --target {node_id} {args.out_dir}/{(i+args.idx_min):04}_{title}.wav',
                 shell=True,
                 executable='/usr/bin/zsh',
                 timeout=time_in_seconds,
@@ -173,5 +173,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--tracks_yaml', required=True)
     parser.add_argument('--out_dir',     required=True)
+    parser.add_argument('--idx_min', type=int, default=1)
     args = parser.parse_args()
     main(args)
